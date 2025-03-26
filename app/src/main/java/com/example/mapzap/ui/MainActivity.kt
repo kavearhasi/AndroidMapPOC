@@ -1,4 +1,4 @@
-package com.example.mapzap
+package com.example.mapzap.ui
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -13,6 +13,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.ViewModelProvider
+import com.example.mapzap.R
+import com.example.mapzap.databinding.ActivityMainBinding
+import com.example.mapzap.domain.isValidLatLng
+import com.example.mapzap.ui.fragments.MapCoordinatesFragment
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -30,24 +35,39 @@ import java.util.Date
 import java.util.Locale
 
 class MainActivity : AppCompatActivity(), OnMapReadyCallback {
-
+    private lateinit var binding: ActivityMainBinding
     private var currentLocation: Location? = null
     private lateinit var fusedLocationProviderClient: FusedLocationProviderClient
-    val FINE_PERMISSION_CODE = 1
+    private val FINE_PERMISSION_CODE = 1
     private lateinit var locationCallback: LocationCallback
     private lateinit var locationRequest: LocationRequest
     private lateinit var clientMap: GoogleMap
     private var isLocationReceived = false
     private var pinToUser: Marker? = null
-
+    private lateinit var mapViewModel: MapViewModel
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContentView(R.layout.activity_main)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
         fusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this)
-        locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 30000L)
+        locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 15000L)
             .setMinUpdateIntervalMillis(60000L).build()
+        mapViewModel = ViewModelProvider(this)[MapViewModel::class.java]
+        binding.gotoLocation.setOnClickListener {
+            MapCoordinatesFragment().show(supportFragmentManager, "coordinates")
+        }
+        binding.currentLocation.setOnClickListener {
+            myLocation()
+        }
         setMap()
+        takeOff()
+    }
+
+    private fun takeOff() {
+        mapViewModel._latLng.observe(this) {
+            goToLocation(it.latitude, it.longitude)
+        }
     }
 
     private fun initMap() {
@@ -85,7 +105,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
     override fun onMapReady(p0: GoogleMap) {
         clientMap = p0
-
     }
 
     override fun onRequestPermissionsResult(
@@ -110,11 +129,8 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             override fun onLocationResult(locationResult: LocationResult) {
                 locationResult ?: return
                 for (location in locationResult.locations) {
-                    Log.e("Mapsss", "from the object $location")
                     currentLocation = location
                     isLocationReceived = true
-                    //  clientMap.isMyLocationEnabled = true
-                    goToLocation(currentLocation)
                 }
             }
         }
@@ -129,23 +145,42 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         )
     }
 
-    private fun goToLocation(location: Location?) {
-        if (location != null && clientMap != null) {
-            val localLocation = LatLng(location.latitude, location.longitude)
-            val preiousZoom = clientMap.cameraPosition.zoom
+    private fun goToLocation(latitude: Double, longitude: Double) {
+        if (isValidLatLng(latitude, longitude)) {
+            val localLocation = LatLng(latitude, longitude)
+            val previousZoom = clientMap.cameraPosition.zoom
             pinToUser?.remove()
-            pinToUser = clientMap?.addMarker(
+            pinToUser = clientMap.addMarker(
                 MarkerOptions().position(localLocation).title("Your Location").snippet(
-                        "Updated: ${
-                            SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(
-                                Date()
-                            )
-                        }"
-                    )
+                    "Updated: ${
+                        SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(
+                            Date()
+                        )
+                    }"
+                )
             )
-            clientMap!!.animateCamera(CameraUpdateFactory.newLatLngZoom(localLocation, preiousZoom))
+            clientMap.animateCamera(
+                CameraUpdateFactory.newLatLngZoom(
+                    localLocation, previousZoom
+                )
+            )
         } else {
-            Log.e("Mapsss", "Received the null in  $clientMap , $location")
+            Log.e("MapMainActivity", "Received the null in  $clientMap ")
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun myLocation() {
+        if (permissionCheck()) {
+            if (currentLocation != null) {
+                goToLocation(currentLocation!!.latitude, currentLocation!!.longitude)
+            } else {
+                Toast.makeText(
+                    this, "Error Occurred! Please retry after sometime", Toast.LENGTH_LONG
+                ).show()
+            }
+        } else {
+            requestPermission()
         }
     }
 }
